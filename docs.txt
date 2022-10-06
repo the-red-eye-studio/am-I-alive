@@ -1,0 +1,22 @@
+# BE SURE TO SET THIS TO LISTEN ON PORT 443 AND REMOVE 80
+# ONCE YOU'VE SETUP CERTBOT -- https://certbot.eff.org/
+
+server {
+    listen 80;
+    server_name URL/IP HERE;
+
+    proxy_set_header    Host                 $host;
+    proxy_set_header    X-Real-IP            $remote_addr;
+    proxy_set_header    X-Forwarded-For      $proxy_add_x_forwarded_for;
+    proxy_set_header    X-Forwarded-Proto    $scheme;
+
+    resolver 127.0.0.1;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+    }
+
+    location ^~ /static/ {
+        root /home/your_user/folder_for_the_project;
+    }
+}

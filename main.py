@@ -1,62 +1,48 @@
-import requests, time, os, json, threading
-from flask import Flask
-
-mainFile = "commits"
-githubAccount = "the-red-eye-studio"
-accountName = "Redeye"
-
-Github_token = "noTokenForUbozo"
-
-threshold = 1210000 # ~ 2 weeks
+import requests, time
+from flask import Flask, render_template
+from werkzeug.middleware.proxy_fix import ProxyFix
+from config import github_account, account_string, days_to_consider_dead
 
 
-def returnHTML(text, color):
-    if color == "red":
-        color = "252, 3, 23"
-    elif color == "green":
-        color = "54, 153, 8"
-    return """<!DOCTYPE html><html><style>.container{margin: 0; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family:'Courier New'; font-size: 450%; color: rgb(""" + color + """);}@keyframes cursor-blink{0%{opacity: 0;}}.container::after{content: "|"; animation: cursor-blink 1.5s steps(2) infinite;}</style> <body style="background-color:#2c353d"><div class="container"><a>""" + text + """</a></div><div class="bottom_link"><a href="https://github.com/the-red-eye-studio/am-I-alive" style="position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, -50%); margin: 0 auto; color:#5f6061; text-decoration: none; font-family:'Courier New';">Source code</a></div></body></html>"""
+def the_app():
+    the_application = Flask(__name__)
+    the_application.debug = False
+    the_application.config['MAX_CONTENT_LENGTH'] = 256
+    the_application.jinja_env.trim_blocks = True
+    the_application.jinja_env.lstrip_blocks = True
+    the_application.jinja_env.enable_async = True
+    the_application.wsgi_app = ProxyFix(the_application.wsgi_app, x_proto=1, x_host=1)
+    return the_application
 
 
-if not os.path.exists(mainFile):
-    with open(mainFile, 'w') as f:
-        f.write(json.dumps([requests.get("https://api.github.com/users/" + githubAccount + "/events/public", auth=(Github_token, "x")).json()[0]["id"], int(time.time())]))
-        time.sleep(7)
+app = the_app()
+app.app_context().push()
 
-def worker():
-    while True:
-        with open(mainFile, 'r') as f:
-            lastCommit = json.loads(f.read())
-
-        try:
-            _latestCommit = requests.get("https://api.github.com/users/" + githubAccount + "/events/public", auth=(Github_token, "x")).json()[0]["id"]
-        except:
-            _latestCommit = lastCommit[0]
-            time.sleep(120)
-
-        if not lastCommit[0] == _latestCommit:
-            with open(mainFile, 'w') as f:
-                f.write(json.dumps([_latestCommit, int(time.time())]))
-            print("New commit")
-
-        time.sleep(20)
-
-
-threading.Thread(target=worker).start()
-
-app = Flask(__name__)
 
 @app.route("/")
-def hello_world():
-    with open(mainFile, 'r') as f:
-        lastCommit = json.loads(f.read())
-    
-    if time.time() - lastCommit[1] > threshold:
-        return returnHTML(accountName + " is dead, he hasn't commited in " + str(round((time.time() - lastCommit[1])/ 24 / 60 / 60, 2)) + " days ;-;", "red")
+def index():
+    try:
+        latest_commit_get = requests.get(f"https://api.github.com/users/{github_account}/events/public").json()
+        latest_commit_time = latest_commit_get[0]["created_at"]
+    except Exception:
+        the_text = f"I couldn't connect to Github to check when {github_account} last committed."
+        return render_template('index.html',
+                               the_text=the_text,
+                               request_complete=False,
+                               alive=False), 404
     else:
-        return returnHTML(accountName + " is alive, he commited " + str(round((time.time() - lastCommit[1])/ 24 / 60 / 60, 2)) + " days ago :)", "green")
-
-
-if __name__ == "__main__":
-	app.run(host="0.0.0.0", port=5978)
-
+        current_time = time.time()
+        time_since_last_commit_in_seconds = current_time - latest_commit_time
+        time_since_last_commit_in_days = time_since_last_commit_in_seconds / 86400
+        if time_since_last_commit_in_days > days_to_consider_dead:
+            the_text = f"{account_string} is dead. They haven't committed in {time_since_last_commit_in_days} days."
+            return render_template('index.html',
+                                   the_text=the_text,
+                                   request_complete=True,
+                                   alive=False), 404
+        else:
+            the_text = f"{account_string} is alive. They last committed {time_since_last_commit_in_days} days ago."
+            return render_template('index.html',
+                                   the_text=the_text,
+                                   request_complete=True,
+                                   alive=True), 200
